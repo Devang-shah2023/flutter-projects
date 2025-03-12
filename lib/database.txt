@@ -1,134 +1,140 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:sqflite/sqflite.dart';
-import 'package:sqflite/sqlite_api.dart';
-import 'package:path/path.dart';
+import 'package:http/http.dart' as http;
 
-class SqfCrud extends StatefulWidget {
-  const SqfCrud({super.key});
+class RestApi extends StatefulWidget {
+  const RestApi({super.key});
 
   @override
-  State<SqfCrud> createState() => _SqfCrudState();
+  State<RestApi> createState() => _RestApiState();
 }
 
-class _SqfCrudState extends State<SqfCrud> {
-  late Database _database;
+class _RestApiState extends State<RestApi> {
   List<Map<String, dynamic>> datalist = [];
   var nameController = TextEditingController();
   var ageController = TextEditingController();
-  var idController = TextEditingController();
-
-  Future<void> _initDatabase() async {
-    _database = await openDatabase(
-      join(await getDatabasesPath(), 'my_new_db'), // Changed database name here
-      onCreate: (db, version) {
-        return db.execute(
-          'CREATE TABLE todo(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, age INTEGER)',
-        );
-      },
-      version: 1,
-    );
-    _fetchData();
-  }
-
-  Future<void> _fetchData() async {
-    final List<Map<String, dynamic>> data = await _database.query('todo');
-    setState(() {
-      datalist = data;
-    });
-  }
-
-  Future<void> update(int id, String name, int age) async {
-    await _database.update(
-      'todo',
-      {'name': name, 'age': age},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    _fetchData();
-  }
-
-  Future<void> postData(String name, int age) async {
-    await _database.insert(
-      'todo',
-      {'name': name, 'age': age},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-    _fetchData();
-  }
-
-  Future<void> delete(int id) async {
-    await _database.delete(
-      'todo',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    _fetchData();
-  }
-
-  void showModalSheet(BuildContext context, {bool isUpdate = false, Map<String, dynamic>? item}) {
-    if (isUpdate && item != null) {
-      nameController.text = item['name'];
-      ageController.text = item['age'].toString();
-    }
-    showModalBottomSheet(
-      context: context,
-      builder: (context) {
-        return Column(
-          children: [
-            TextField(
-              controller: nameController,
-              decoration: InputDecoration(labelText: 'Name'),
-            ),
-            TextField(
-              controller: ageController,
-              decoration: InputDecoration(labelText: 'Age'),
-              keyboardType: TextInputType.number,
-            ),
-            SizedBox(height: 10),
-            ElevatedButton(
-              onPressed: () async {
-                if (isUpdate && item != null) {
-                  await update(
-                    item['id'],
-                    nameController.text,
-                    int.parse(ageController.text),
-                  );
-                } else {
-                  await postData(
-                    nameController.text.toString(),
-                    int.parse(ageController.text),
-                  );
-                }
-                nameController.clear();
-                ageController.clear();
-                Navigator.pop(context);
-              },
-              child: Text(isUpdate ? 'Update' : 'Add'),
-            ),
-          ],
-        );
-      },
-    );
-  }
 
   @override
   void initState() {
-    _initDatabase();
-    _fetchData();
     super.initState();
+    getData();
+  }
+
+  Future<void> getData() async {
+    final response = await http.get(Uri.parse('https://67b41cbc392f4aa94fa96231.mockapi.io/users'));
+    if (response.statusCode == 200) {
+      List<dynamic> jsonData = jsonDecode(response.body);
+      setState(() {
+        datalist = jsonData.cast<Map<String, dynamic>>();
+      });
+    }
+    print(datalist);
+  }
+
+  Future<void> update(String id, Map<String, dynamic> map) async {
+    try {
+      final response = await http.put(
+        Uri.parse('https://67b41cbc392f4aa94fa96231.mockapi.io/users/$id'),
+        headers: <String, String>{
+          'Content-Type': 'application/json; charset=UTF-8',
+        },
+        body: jsonEncode(map),
+      );
+      if (response.statusCode == 200) {
+        print('Update successful');
+        getData();
+      } else {
+        print('Failed to update: ${response.reasonPhrase}');
+      }
+    } catch (error) {
+      print('Error updating data: $error');
+    }
+  }
+
+  Future<void> postData(Map<String, dynamic> map) async {
+    final response = await http.post(
+      Uri.parse('https://67b41cbc392f4aa94fa96231.mockapi.io/users/'),
+      headers: <String, String>{
+        'Content-Type': 'application/json; charset=UTF-8',
+      },
+      body: jsonEncode(map),
+    );
+    if (response.statusCode == 201) {
+      print('Post successful');
+      getData();
+    } else {
+      print('Failed to post');
+    }
+  }
+
+  Future<void> deleteData(String id) async {
+    final response = await http.delete(Uri.parse('https://67b41cbc392f4aa94fa96231.mockapi.io/users/$id'));
+    if (response.statusCode == 200) {
+      print("delete successfully");
+    } else {
+      print("error :: :");
+    }
+    getData();
+  }
+
+  void showBottom(BuildContext context, {Map<String, dynamic>? existingData}) {
+    if (existingData != null) {
+      nameController.text = existingData['name'];
+      ageController.text = existingData['age'].toString();
+    } else {
+      nameController.clear();
+      ageController.clear();
+    }
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: InputDecoration(labelText: 'Name'),
+              ),
+              TextField(
+                controller: ageController,
+                decoration: InputDecoration(labelText: 'Age'),
+                keyboardType: TextInputType.number,
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Map<String, dynamic> map = {
+                    'name': nameController.text,
+                    'age': int.tryParse(ageController.text) ?? 0,
+                  };
+                  if (existingData != null) {
+                    update(existingData['id'].toString(), map);
+                  } else {
+                    postData(map);
+                  }
+                  Navigator.pop(context);
+                },
+                child: Text(existingData != null ? "Update" : "Add"),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Sqflite CRUD'),
-      ),
       floatingActionButton: ElevatedButton(
         onPressed: () {
-          showModalSheet(context);
+          showBottom(context);
         },
         child: Icon(Icons.add),
+      ),
+      appBar: AppBar(
+        title: Text('REST API CRUD'),
       ),
       body: SafeArea(
         child: Column(
@@ -137,31 +143,28 @@ class _SqfCrudState extends State<SqfCrud> {
               child: ListView.builder(
                 itemCount: datalist.length,
                 itemBuilder: (context, index) {
+                  var item = datalist[index];
                   return ListTile(
                     leading: CircleAvatar(
-                      child: Text(datalist[index]['name'][0]),
+                      child: Text(item['id']),
                     ),
-                    title: Text(datalist[index]['name']),
-                    subtitle: Text('Age: ${datalist[index]['age']}'),
+                    title: Text(item['name']),
+                    subtitle: Text('Age: ${item['age']}'),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
                           onPressed: () {
-                            showModalSheet(
-                              context,
-                              isUpdate: true,
-                              item: datalist[index],
-                            );
+                            showBottom(context, existingData: item);
                           },
                           icon: Icon(Icons.edit),
                         ),
                         SizedBox(width: 10),
                         IconButton(
-                          onPressed: () async {
-                            await delete(datalist[index]['id']);
+                          onPressed: () {
+                            deleteData(item['id'].toString());
                           },
-                          icon: Icon(Icons.delete, color: Colors.red),
+                          icon: Icon(Icons.delete),
                         ),
                       ],
                     ),
